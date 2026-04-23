@@ -211,3 +211,12 @@ class MemorySourceOut(BaseModel):
     relevance_score: float
 
     model_config = {"from_attributes": True}
+
+
+# ── Graph Neighborhood (for visualization) ──────────────────────
+
+class GraphNeighborhoodOut(BaseModel):
+    center: EntityOut
+    entities: list[EntityOut]
+    relations: list[RelationOut]
+    depth: int

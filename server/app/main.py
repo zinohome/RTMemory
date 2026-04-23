@@ -7,14 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db.session import close_engine
+from app.worker import Worker
+
+
+# ── Worker instance (shared across the app) ────────────────────────────────
+
+worker = Worker(max_concurrent=4)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown hooks."""
-    # Startup — no special actions needed; engine is lazy-created
+    # Startup — initialize worker
+    worker.start()
+    # Yield control to the application
     yield
-    # Shutdown — close database engine
+    # Shutdown — stop worker and close database engine
+    await worker.stop()
     await close_engine()
 
 
@@ -44,6 +53,12 @@ from app.api.search import router as search_router  # noqa: E402
 from app.api.conversations import router as conversations_router  # noqa: E402
 from app.api.documents import router as documents_router  # noqa: E402
 from app.api.profile import create_profile_router  # noqa: E402
+from app.api.graph import router as graph_router  # noqa: E402
+from app.api.tasks import router as tasks_router  # noqa: E402
+from app.api.tasks import set_worker  # noqa: E402
+
+# Wire worker to tasks API
+set_worker(worker)
 
 app.include_router(spaces_router, prefix="/v1/spaces", tags=["spaces"])
 app.include_router(entities_router)
@@ -53,6 +68,8 @@ app.include_router(search_router)
 app.include_router(conversations_router)
 app.include_router(documents_router)
 app.include_router(create_profile_router())
+app.include_router(graph_router)
+app.include_router(tasks_router)
 
 
 @app.get("/")
