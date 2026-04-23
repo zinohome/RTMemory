@@ -1,103 +1,157 @@
-"""Graph visualization API — GET /v1/graph/neighborhood.
+"""Graph visualization API route — GET /v1/graph/neighborhood.
 
-Returns a sub-graph around a given entity for visualization,
-using the GraphEngine's traverse method.
+Provides a D3.js/Cytoscape-compatible graph neighborhood endpoint that
+wraps GraphEngine.traverse_graph() and transforms the output into a
+format suitable for front-end graph rendering.
 """
 from __future__ import annotations
 
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.graph_engine import GraphEngine
+from app.db.session import get_session
 from app.schemas.graph import (
     EntityOut,
-    GraphNeighborhoodOut,
+    GraphTraversalOut,
+    GraphTraversalParams,
     RelationOut,
+    TraversedRelationOut,
 )
 
 router = APIRouter(prefix="/v1/graph", tags=["graph"])
 
-# Global engine — set during app startup
-_graph_engine: GraphEngine | None = None
+
+async def _get_engine(session: AsyncSession = Depends(get_session)) -> GraphEngine:
+    return GraphEngine(session)
 
 
-def set_graph_engine(engine: GraphEngine) -> None:
-    """Set the global GraphEngine instance."""
-    global _graph_engine
-    _graph_engine = engine
+# ── Response schemas for D3/Cytoscape ───────────────────────────────
 
 
-def get_graph_engine() -> GraphEngine:
-    """FastAPI dependency — returns the configured GraphEngine."""
-    if _graph_engine is None:
-        raise HTTPException(status_code=503, detail="GraphEngine not initialized")
-    return _graph_engine
+class GraphNode(BaseModel):
+    """Node suitable for D3.js / Cytoscape rendering."""
+    id: str
+    label: str
+    entityType: Optional[str] = None
+    description: Optional[str] = None
+    confidence: float = 1.0
 
 
-@router.get("/neighborhood", response_model=GraphNeighborhoodOut)
-async def get_neighborhood(
-    entity_id: uuid.UUID = Query(..., description="Center entity ID"),
-    max_hops: int = Query(default=2, ge=1, le=5, description="Max traversal depth"),
-    engine: GraphEngine = Depends(get_graph_engine),
-):
-    """Get the graph neighborhood around an entity.
+class GraphEdge(BaseModel):
+    """Edge suitable for D3.js / Cytoscape rendering."""
+    id: str
+    source: str
+    target: str
+    label: str
+    value: Optional[str] = None
+    confidence: float = 1.0
+    validFrom: Optional[str] = None
+    validTo: Optional[str] = None
+    isCurrent: bool = True
 
-    Returns the center entity plus all entities and relations reachable
-    within `max_hops` steps. Useful for graph visualization.
+
+class GraphNeighborhoodResponse(BaseModel):
+    """Response format for graph neighborhood visualization.
+
+    This format is directly consumable by D3.js force-directed layouts
+    and Cytoscape.js:
+      - nodes[].id, nodes[].label for node rendering
+      - edges[].source, edges[].target for link rendering
     """
-    result = await engine.traverse(
+    center: str
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+    maxHops: int = 3
+
+
+# ── Endpoint ────────────────────────────────────────────────────────
+
+
+@router.get("/neighborhood", response_model=GraphNeighborhoodResponse)
+async def get_graph_neighborhood(
+    entity_id: uuid.UUID = Query(..., description="Center entity ID"),
+    space_id: Optional[uuid.UUID] = Query(default=None, description="Filter by space"),
+    max_hops: int = Query(default=3, ge=1, le=10, description="Max traversal hops"),
+    relation_types: Optional[str] = Query(
+        default=None, description="Comma-separated relation types to follow"
+    ),
+    direction: str = Query(
+        default="both", description="Traversal direction: outgoing, incoming, or both"
+    ),
+    engine: GraphEngine = Depends(_get_engine),
+) -> GraphNeighborhoodResponse:
+    """Get the neighborhood of an entity for graph visualization.
+
+    Traverses the knowledge graph from the given entity using recursive CTE
+    and returns nodes/edges in a D3.js/Cytoscape-compatible format.
+
+    This is a visualization-friendly wrapper around the core
+    ``GraphEngine.traverse_graph()`` method.
+    """
+    # Validate direction
+    if direction not in ("outgoing", "incoming", "both"):
+        raise HTTPException(
+            status_code=400,
+            detail="direction must be one of: outgoing, incoming, both",
+        )
+
+    # Parse comma-separated relation types
+    parsed_relation_types: Optional[list[str]] = None
+    if relation_types:
+        parsed_relation_types = [rt.strip() for rt in relation_types.split(",") if rt.strip()]
+
+    params = GraphTraversalParams(
         entity_id=entity_id,
         max_hops=max_hops,
+        relation_types=parsed_relation_types,
+        direction=direction,
     )
-    if result is None:
-        raise HTTPException(status_code=404, detail="Entity not found")
 
-    center_entity = result["center"]
-    entities = result.get("entities", [])
-    relations = result.get("relations", [])
+    try:
+        traversal: GraphTraversalOut = await engine.traverse_graph(params)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
-    return GraphNeighborhoodOut(
-        center=EntityOut(
-            id=center_entity.id,
-            name=center_entity.name,
-            entity_type=center_entity.entity_type,
-            description=center_entity.description,
-            confidence=center_entity.confidence,
-            space_id=center_entity.space_id,
-            created_at=center_entity.created_at,
-            updated_at=center_entity.updated_at,
-        ),
-        entities=[
-            EntityOut(
-                id=e.id,
-                name=e.name,
-                entity_type=e.entity_type,
-                description=e.description,
-                confidence=e.confidence,
-                space_id=e.space_id,
-                created_at=e.created_at,
-                updated_at=e.updated_at,
+    # Convert engine output to D3/Cytoscape format
+    nodes: list[GraphNode] = []
+    for entity in traversal.entities:
+        nodes.append(
+            GraphNode(
+                id=str(entity.id),
+                label=entity.name,
+                entityType=entity.entity_type.value
+                if hasattr(entity.entity_type, "value")
+                else str(entity.entity_type),
+                description=entity.description,
+                confidence=entity.confidence,
             )
-            for e in entities
-        ],
-        relations=[
-            RelationOut(
-                id=r.id,
-                source_entity_id=r.source_entity_id,
-                target_entity_id=r.target_entity_id,
-                relation_type=r.relation_type,
-                value=r.value,
-                valid_from=r.valid_from,
-                valid_to=r.valid_to,
-                confidence=r.confidence,
-                is_current=r.is_current,
-                source_count=r.source_count,
-                space_id=r.space_id,
-                created_at=r.created_at,
-                updated_at=r.updated_at,
+        )
+
+    edges: list[GraphEdge] = []
+    for traversed in traversal.relations:
+        rel: RelationOut = traversed.relation
+        edges.append(
+            GraphEdge(
+                id=str(rel.id),
+                source=str(rel.source_entity_id),
+                target=str(rel.target_entity_id),
+                label=rel.relation_type,
+                value=rel.value or None,
+                confidence=rel.confidence,
+                validFrom=rel.valid_from.isoformat() if rel.valid_from else None,
+                validTo=rel.valid_to.isoformat() if rel.valid_to else None,
+                isCurrent=rel.is_current,
             )
-            for r in relations
-        ],
-        depth=max_hops,
+        )
+
+    return GraphNeighborhoodResponse(
+        center=str(entity_id),
+        nodes=nodes,
+        edges=edges,
+        maxHops=max_hops,
     )

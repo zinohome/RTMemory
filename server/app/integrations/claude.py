@@ -1,9 +1,24 @@
 """Claude Code adapter — integrates RTMemory with Claude Code via MCP protocol.
 
-Provides an MCP server that exposes RTMemory operations as tools
-that Claude Code can invoke during conversations.
+Provides both:
 
-Usage from Claude Code settings::
+1. ``ClaudeAdapter`` — a simple class-based adapter with remember/recall/forget
+   methods that map directly to RTMemory operations. Use this when embedding
+   RTMemory into a custom Claude Code workflow without the MCP protocol overhead.
+
+2. MCP server — exposes RTMemory operations as MCP tools that Claude Code can
+   invoke during conversations via stdio transport.
+
+Usage (ClaudeAdapter)::
+
+    from app.integrations.claude import ClaudeAdapter
+
+    adapter = ClaudeAdapter(base_url="http://localhost:8000", space_id="sp_001")
+    await adapter.remember("User prefers dark mode")
+    results = await adapter.recall("theme preference")
+    await adapter.forget("dark mode preference")
+
+Usage (MCP server from Claude Code settings)::
 
     {
       "mcpServers": {
@@ -27,6 +42,100 @@ import sys
 from typing import Any
 
 import httpx
+
+
+# ── ClaudeAdapter ──────────────────────────────────────────────────────
+
+
+class ClaudeAdapter:
+    """Simple adapter that maps Claude Code operations to RTMemory API calls.
+
+    This is a thin layer — no external Claude SDK dependency required.
+    Construct with a base URL and optional API key / default space, then
+    use ``remember``, ``recall``, and ``forget`` to interact with RTMemory.
+    """
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:8000",
+        api_key: str | None = None,
+        space_id: str = "default",
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.space_id = space_id
+        self._headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key:
+            self._headers["Authorization"] = f"Bearer {api_key}"
+
+    async def _request(
+        self, method: str, path: str, body: dict | None = None
+    ) -> Any:
+        """Make an HTTP request to the RTMemory server."""
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._headers, timeout=30.0
+        ) as client:
+            if method == "POST":
+                resp = await client.post(path, json=body)
+            elif method == "DELETE":
+                resp = await client.delete(path, json=body)
+            else:
+                resp = await client.get(path)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def remember(self, content: str, **kwargs: Any) -> dict[str, Any]:
+        """Store a memory. Maps to ``add_memory``.
+
+        Args:
+            content: The memory content to store.
+            **kwargs: Optional overrides — space_id, user_id, entity_context, metadata.
+
+        Returns:
+            The add-memory response from the server.
+        """
+        body: dict[str, Any] = {
+            "content": content,
+            "space_id": kwargs.get("space_id", self.space_id),
+        }
+        for key in ("user_id", "entity_context", "metadata"):
+            if key in kwargs:
+                body[key] = kwargs[key]
+        return await self._request("POST", "/v1/memories/", body)
+
+    async def recall(self, query: str, **kwargs: Any) -> dict[str, Any]:
+        """Search memories. Maps to ``search_memory``.
+
+        Args:
+            query: The search query string.
+            **kwargs: Optional overrides — space_id, mode, limit, include_profile.
+
+        Returns:
+            The search response from the server.
+        """
+        body: dict[str, Any] = {
+            "q": query,
+            "space_id": kwargs.get("space_id", self.space_id),
+            "mode": kwargs.get("mode", "hybrid"),
+            "limit": kwargs.get("limit", 10),
+            "include_profile": kwargs.get("include_profile", False),
+        }
+        return await self._request("POST", "/v1/search/", body)
+
+    async def forget(self, content_match: str, **kwargs: Any) -> dict[str, Any]:
+        """Forget a memory by content match. Maps to ``forget_memory``.
+
+        Args:
+            content_match: Fuzzy content match to find and forget.
+            **kwargs: Optional overrides — memory_id, reason.
+
+        Returns:
+            The forget-memory response from the server.
+        """
+        body: dict[str, Any] = {"content_match": content_match}
+        for key in ("memory_id", "reason"):
+            if key in kwargs:
+                body[key] = kwargs[key]
+        return await self._request("POST", "/v1/memories/forget", body)
 
 
 # ── Configuration ────────────────────────────────────────────────────────
@@ -175,7 +284,7 @@ TOOLS = [
                 "space_id": {"type": "string", "description": "Space ID (optional, uses default)"},
                 "mode": {"type": "string", "enum": ["hybrid", "memory_only", "documents_only"], "description": "Search mode", "default": "hybrid"},
                 "limit": {"type": "integer", "description": "Max results", "default": 5},
-                "include_profile": {"type": "boolean", "description": "Include user profile", "default": false},
+                "include_profile": {"type": "boolean", "description": "Include user profile", "default": False},
             },
             "required": ["q"],
         },
@@ -189,7 +298,7 @@ TOOLS = [
                 "entity_id": {"type": "string", "description": "The entity ID of the user"},
                 "space_id": {"type": "string", "description": "Space ID (optional, uses default)"},
                 "q": {"type": "string", "description": "Optional query to include search results (optional)"},
-                "fresh": {"type": "boolean", "description": "Force fresh computation", "default": false},
+                "fresh": {"type": "boolean", "description": "Force fresh computation", "default": False},
             },
             "required": ["entity_id"],
         },
