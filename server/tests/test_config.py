@@ -6,7 +6,7 @@ import tempfile
 import pytest
 import yaml
 
-from app.config import Settings, DatabaseConfig, LLMConfig, EmbeddingConfig, ServerConfig
+from app.config import Settings, DatabaseConfig, LLMConfig, EmbeddingConfig, ServerConfig, AppConfig, load_config
 
 
 class TestDatabaseConfig:
@@ -92,3 +92,61 @@ class TestSettings:
         settings = Settings.from_yaml(str(yaml_path))
         assert settings.server.port == 3000
         assert settings.embedding.vector_dimension == 1536
+
+
+class TestAppConfig:
+    def test_app_config_combines_llm_and_embedding(self):
+        llm = LLMConfig(provider="openai", model="gpt-4o", api_key="sk-test")
+        embedding = EmbeddingConfig(provider="local", model="BAAI/bge-base-zh-v1.5")
+        config = AppConfig(llm=llm, embedding=embedding)
+        assert config.llm.provider == "openai"
+        assert config.embedding.provider == "local"
+
+
+class TestLoadConfig:
+    def test_load_config_from_yaml(self, tmp_path):
+        config_data = {
+            "llm": {
+                "provider": "ollama",
+                "model": "qwen2.5:7b",
+                "base_url": "http://localhost:11434",
+                "temperature": 0.1,
+                "max_tokens": 2048,
+            },
+            "embedding": {
+                "provider": "local",
+                "model": "BAAI/bge-base-zh-v1.5",
+            },
+        }
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config_data))
+
+        config = load_config(config_file)
+        assert config.llm.provider == "ollama"
+        assert config.llm.model == "qwen2.5:7b"
+        assert config.llm.base_url == "http://localhost:11434"
+        assert config.llm.temperature == 0.1
+        assert config.llm.max_tokens == 2048
+        assert config.embedding.provider == "local"
+        assert config.embedding.model == "BAAI/bge-base-zh-v1.5"
+
+    def test_load_config_with_openai_defaults(self, tmp_path):
+        config_data = {
+            "llm": {
+                "provider": "openai",
+                "model": "gpt-4o",
+                "api_key": "sk-test-key",
+            },
+            "embedding": {
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "api_key": "sk-test-key",
+            },
+        }
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config_data))
+
+        config = load_config(config_file)
+        assert config.llm.api_key == "sk-test-key"
+        assert config.llm.base_url == "http://localhost:11434"  # default from LLMConfig
+        assert config.embedding.api_key == "sk-test-key"

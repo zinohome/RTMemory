@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -158,3 +158,37 @@ def reset_settings() -> None:
     """Reset the cached settings singleton (useful for testing)."""
     global _settings
     _settings = None
+
+
+class AppConfig(BaseModel):
+    """Top-level application configuration for LLM and embedding adapters.
+
+    This is a simpler config model than Settings — it only covers LLM and
+    embedding config, and is suitable for the adapter factory functions.
+
+    Attributes:
+        llm: LLM adapter configuration.
+        embedding: Embedding service configuration.
+    """
+
+    llm: LLMConfig
+    embedding: EmbeddingConfig
+
+
+def load_config(path: str | Path = "config.yaml") -> AppConfig:
+    """Load application configuration from a YAML file.
+
+    Args:
+        path: Path to the YAML configuration file.
+
+    Returns:
+        AppConfig instance with validated configuration.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        pydantic.ValidationError: If the config data is invalid.
+    """
+    path = Path(path)
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return AppConfig(**data)
