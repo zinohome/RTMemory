@@ -37,8 +37,14 @@ app.add_middleware(
 
 # Import and register routers
 from app.api.spaces import router as spaces_router  # noqa: E402
+from app.api.entities import router as entities_router  # noqa: E402
+from app.api.relations import router as relations_router  # noqa: E402
+from app.api.memories import router as memories_router  # noqa: E402
 
 app.include_router(spaces_router, prefix="/v1/spaces", tags=["spaces"])
+app.include_router(entities_router)
+app.include_router(relations_router)
+app.include_router(memories_router)
 
 
 @app.get("/")
