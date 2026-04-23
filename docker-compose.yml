@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  rtmemory-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - RTMEM_DATABASE_HOST=postgres
+      - RTMEM_DATABASE_PORT=5432
+      - RTMEM_DATABASE_USER=rtmemory
+      - RTMEM_DATABASE_PASSWORD=secret
+      - RTMEM_DATABASE_DATABASE=rtmemory
+      - RTMEM_LLM_PROVIDER=ollama
+      - RTMEM_LLM_MODEL=qwen2.5:7b
+      - RTMEM_LLM_BASE_URL=http://ollama:11434
+      - RTMEM_EMBEDDING_PROVIDER=local
+      - RTMEM_EMBEDDING_MODEL=BAAI/bge-base-zh-v1.5
+      - RTMEM_EMBEDDING_VECTOR_DIMENSION=768
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rtmemory-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m app.worker
+    environment:
+      - RTMEM_DATABASE_HOST=postgres
+      - RTMEM_DATABASE_PORT=5432
+      - RTMEM_DATABASE_USER=rtmemory
+      - RTMEM_DATABASE_PASSWORD=secret
+      - RTMEM_DATABASE_DATABASE=rtmemory
+      - RTMEM_LLM_PROVIDER=ollama
+      - RTMEM_LLM_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=rtmemory
+      - POSTGRES_USER=rtmemory
+      - POSTGRES_PASSWORD=secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rtmemory"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ollama_data:
