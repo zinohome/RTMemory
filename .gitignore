@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Database
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# RTMemory server
+server/test.db
+server/rtmemory_server.egg-info/
+
+# SDK Python
+sdk-python/dist/
+sdk-python/build/
+sdk-python/*.egg-info/
+sdk-python/.eggs/
+sdk-python/__pycache__/
+
+# SDK JavaScript
+sdk-js/node_modules/
+sdk-js/dist/
+sdk-js/.turbo/
+
+# Claude Code
+.claude/settings.local.json
+.remember/
+
+# Environment
+.env
+.env.local
