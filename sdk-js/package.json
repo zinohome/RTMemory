@@ -1,0 +1,20 @@
+{
+  "name": "rtmemory",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for RTMemory — temporal knowledge-graph driven AI memory",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/.bin/vitest run"
+  },
+  "dependencies": {},
+  "peerDependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5",
+    "vitest": "^2.0",
+    "zod": "^3.23"
+  },
+  "license": "MIT"
+}
