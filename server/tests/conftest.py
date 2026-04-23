@@ -1,7 +1,9 @@
 """Shared test fixtures for RTMemory tests."""
 
 import uuid
+import unittest.mock
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -77,3 +79,40 @@ def sample_org_id():
 def sample_owner_id():
     """Return a fixed owner UUID for tests."""
     return uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+
+# ---------------------------------------------------------------------------
+# LLM / Embedding adapter test helpers
+# ---------------------------------------------------------------------------
+
+
+def make_httpx_response(
+    status_code: int = 200,
+    json_data: dict | None = None,
+) -> httpx.Response:
+    """Create an httpx.Response for testing without making real requests.
+
+    Args:
+        status_code: HTTP status code.
+        json_data: JSON response body.
+
+    Returns:
+        httpx.Response with the given status and JSON body.
+    """
+    request = httpx.Request("POST", "https://api.example.com")
+    return httpx.Response(
+        status_code=status_code,
+        json=json_data or {},
+        request=request,
+    )
+
+
+@pytest.fixture
+def mock_client():
+    """Provide a mock httpx.AsyncClient for testing adapters.
+
+    Returns an AsyncMock with a configured .post() method.
+    Callers should set mock_client.post.return_value before use.
+    """
+    client = unittest.mock.AsyncMock(spec=httpx.AsyncClient)
+    return client
