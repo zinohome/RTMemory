@@ -1,33 +1,21 @@
-# RTMemory default configuration
-# Environment variables with RTMEM_ prefix override these values.
-
-server:
-  host: "0.0.0.0"
-  port: 8000
-  debug: false
-  cors_origins:
-    - "*"
-
-database:
-  host: "localhost"
-  port: 5432
-  user: "rtmemory"
-  password: "secret"
-  database: "rtmemory"
-  # url: ""  # Set to override host/port/user/password/database
+# RTMemory Configuration
+# Switch providers by changing the provider field.
 
 llm:
-  provider: "ollama"
-  model: "qwen2.5:7b"
-  base_url: "http://localhost:11434"
+  # Options: openai, anthropic, ollama
+  provider: ollama
+  model: qwen2.5:7b
+  base_url: http://localhost:11434
+  # api_key: sk-...  # Uncomment for OpenAI/Anthropic
   temperature: 0.1
   max_tokens: 2048
 
 embedding:
-  provider: "local"
-  model: "BAAI/bge-base-zh-v1.5"
-  vector_dimension: 768
-  # For OpenAI embeddings:
-  # provider: "openai"
-  # model: "text-embedding-3-small"
-  # vector_dimension: 1536
+  # Options: local, openai
+  provider: local
+  model: BAAI/bge-base-zh-v1.5
+  # For OpenAI embedding:
+  # provider: openai
+  # model: text-embedding-3-small
+  # api_key: sk-...
+  # base_url: https://api.openai.com/v1
