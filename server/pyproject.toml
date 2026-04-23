@@ -30,6 +30,9 @@ dev = [
     "aiosqlite>=0.20",
     "numpy>=1.26",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 
 [build-system]
 requires = ["setuptools>=75.0"]
