@@ -67,7 +67,7 @@ class LLMConfig(BaseSettings):
     provider: str = Field(default="ollama", description="LLM provider: openai, anthropic, ollama")
     model: str = Field(default="qwen2.5:7b", description="Model name")
     api_key: Optional[str] = Field(default=None, description="API key for cloud providers")
-    base_url: str = Field(default="http://localhost:11434", description="LLM API base URL")
+    base_url: Optional[str] = Field(default=None, description="LLM API base URL")
     temperature: float = Field(default=0.1, description="Sampling temperature")
     max_tokens: int = Field(default=2048, description="Max output tokens")
 

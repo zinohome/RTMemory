@@ -12,8 +12,10 @@ from typing import Any
 
 import httpx
 
+from app.core.llm.adapter import LLMAdapter
 
-class OpenAIAdapter:
+
+class OpenAIAdapter(LLMAdapter):
     """LLM adapter for OpenAI chat completions API.
 
     Args:

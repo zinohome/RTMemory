@@ -34,7 +34,7 @@ class TestLLMConfig:
         cfg = LLMConfig()
         assert cfg.provider == "ollama"
         assert cfg.model == "qwen2.5:7b"
-        assert cfg.base_url == "http://localhost:11434"
+        assert cfg.base_url is None
 
     def test_llm_env_override(self, monkeypatch):
         monkeypatch.setenv("RTMEM_LLM_PROVIDER", "openai")
@@ -148,5 +148,5 @@ class TestLoadConfig:
 
         config = load_config(config_file)
         assert config.llm.api_key == "sk-test-key"
-        assert config.llm.base_url == "http://localhost:11434"  # default from LLMConfig
+        assert config.llm.base_url is None  # default from LLMConfig
         assert config.embedding.api_key == "sk-test-key"

@@ -15,8 +15,10 @@ from typing import Any
 
 import httpx
 
+from app.core.llm.adapter import LLMAdapter
 
-class OllamaAdapter:
+
+class OllamaAdapter(LLMAdapter):
     """LLM adapter for Ollama using the OpenAI-compatible API.
 
     Uses Ollama's /v1/chat/completions endpoint which is compatible with

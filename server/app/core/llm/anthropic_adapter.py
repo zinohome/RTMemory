@@ -12,8 +12,10 @@ from typing import Any
 
 import httpx
 
+from app.core.llm.adapter import LLMAdapter
 
-class AnthropicAdapter:
+
+class AnthropicAdapter(LLMAdapter):
     """LLM adapter for the Anthropic messages API.
 
     Handles the Anthropic-specific API format:
