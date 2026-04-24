@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+sdk-js/node_modules/
+sdk-js/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code / memory
+.claude/
+.remember/
+
+# Environment (secrets should not be in image)
+.env
+.env.local
+
+# Docs and plans (not needed at runtime)
+docs/
+
+# Test artifacts
+server/tests/
+sdk-python/tests/
+sdk-js/vitest.config.ts
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

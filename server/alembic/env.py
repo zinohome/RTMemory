@@ -1,6 +1,7 @@
 """Alembic env.py with async SQLAlchemy support and pgvector extension."""
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -20,6 +21,12 @@ from app.db.models import (  # noqa: F401 — ensure models registered on Base
 )
 
 config = context.config
+
+# Allow RTMEM_DATABASE_URL env var to override the URL in alembic.ini
+# This is essential for Docker where the database host differs from localhost.
+_db_url = os.environ.get("RTMEM_DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

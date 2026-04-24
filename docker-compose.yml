@@ -1,71 +1,103 @@
-version: "3.9"
+# RTMemory — Docker Compose
+#
+# Quick start:
+#   cp .env.example .env   # customize if needed
+#   docker compose up -d
+#
+# Services:
+#   rtmemory   — FastAPI server (includes embedded async worker)
+#   postgres   — PostgreSQL 17 + pgvector
+#   ollama     — Local LLM inference (optional, remove if using cloud LLM)
+#
+# The worker runs inside the FastAPI process via lifespan hooks,
+# so no separate worker container is needed.
 
 services:
-  rtmemory-api:
+  rtmemory:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "${RTMEM_SERVER_PORT:-8000}:8000"
     environment:
-      - RTMEM_DATABASE_HOST=postgres
-      - RTMEM_DATABASE_PORT=5432
-      - RTMEM_DATABASE_USER=rtmemory
-      - RTMEM_DATABASE_PASSWORD=secret
-      - RTMEM_DATABASE_DATABASE=rtmemory
-      - RTMEM_LLM_PROVIDER=ollama
-      - RTMEM_LLM_MODEL=qwen2.5:7b
-      - RTMEM_LLM_BASE_URL=http://ollama:11434
-      - RTMEM_EMBEDDING_PROVIDER=local
-      - RTMEM_EMBEDDING_MODEL=BAAI/bge-base-zh-v1.5
-      - RTMEM_EMBEDDING_VECTOR_DIMENSION=768
+      - RTMEM_DATABASE_URL=${RTMEM_DATABASE_URL:-postgresql+asyncpg://rtmemory:secret@postgres:5432/rtmemory}
+      - RTMEM_LLM_PROVIDER=${RTMEM_LLM_PROVIDER:-ollama}
+      - RTMEM_LLM_MODEL=${RTMEM_LLM_MODEL:-qwen2.5:7b}
+      - RTMEM_LLM_BASE_URL=${RTMEM_LLM_BASE_URL:-http://ollama:11434}
+      - RTMEM_LLM_API_KEY=${RTMEM_LLM_API_KEY:-}
+      - RTMEM_EMBEDDING_PROVIDER=${RTMEM_EMBEDDING_PROVIDER:-local}
+      - RTMEM_EMBEDDING_MODEL=${RTMEM_EMBEDDING_MODEL:-BAAI/bge-base-zh-v1.5}
+      - RTMEM_EMBEDDING_VECTOR_DIMENSION=${RTMEM_EMBEDDING_VECTOR_DIMENSION:-768}
+      - RTMEM_EMBEDDING_API_KEY=${RTMEM_EMBEDDING_API_KEY:-}
+      - RTMEM_SERVER_CORS_ORIGINS=${RTMEM_SERVER_CORS_ORIGINS:-["*"]}
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
-
-  rtmemory-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: python -m app.worker
-    environment:
-      - RTMEM_DATABASE_HOST=postgres
-      - RTMEM_DATABASE_PORT=5432
-      - RTMEM_DATABASE_USER=rtmemory
-      - RTMEM_DATABASE_PASSWORD=secret
-      - RTMEM_DATABASE_DATABASE=rtmemory
-      - RTMEM_LLM_PROVIDER=ollama
-      - RTMEM_LLM_BASE_URL=http://ollama:11434
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+    networks:
+      - rtmemory-net
 
   postgres:
     image: pgvector/pgvector:pg17
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
-      - POSTGRES_DB=rtmemory
-      - POSTGRES_USER=rtmemory
-      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=${POSTGRES_DB:-rtmemory}
+      - POSTGRES_USER=${POSTGRES_USER:-rtmemory}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secret}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rtmemory"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rtmemory}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - rtmemory-net
 
   ollama:
     image: ollama/ollama
     volumes:
       - ollama_data:/root/.ollama
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT:-11434}:11434"
+    # Uncomment to enable GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     restart: unless-stopped
+    networks:
+      - rtmemory-net
+
+  # One-shot init container: pulls the Ollama model on first run.
+  # Remove this service if using OpenAI/Anthropic instead of Ollama.
+  ollama-pull:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_started
+    entrypoint: ["sh", "-c", "ollama pull ${RTMEM_LLM_MODEL:-qwen2.5:7b}"]
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    networks:
+      - rtmemory-net
+    restart: "no"
 
 volumes:
   pgdata:
   ollama_data:
+
+networks:
+  rtmemory-net:
+    driver: bridge
