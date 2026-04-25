@@ -78,12 +78,16 @@ class MemoriesNamespace:
 
     async def forget(
         self,
-        memory_id: str | None = None,
-        content_match: str | None = None,
+        memory_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
-        """Forget a memory by ID or content match (soft delete)."""
-        body = MemoryForgetRequest(memory_id=memory_id, content_match=content_match, reason=reason)
-        resp = await self._http.post("/v1/memories/forget", json=body.model_dump(exclude_none=True))
+        """Forget a memory by ID (soft delete).
+
+        Calls DELETE /v1/memories/{memory_id} with an optional forget_reason.
+        """
+        params: dict[str, str] = {}
+        if reason:
+            params["forget_reason"] = reason
+        resp = await self._http.delete(f"/v1/memories/{memory_id}", params=params if params else None)
         resp.raise_for_status()
         return resp.json()

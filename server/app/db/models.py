@@ -170,7 +170,6 @@ class Entity(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     org_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("spaces.org_id", use_alter=True, name="fk_entities_org_id"),
         nullable=False,
     )
     space_id: Mapped[uuid.UUID] = mapped_column(

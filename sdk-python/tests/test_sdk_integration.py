@@ -72,7 +72,7 @@ class TestMemoryNamespaceIntegration:
     @respx.mock
     @pytest.mark.asyncio
     async def test_forget_memory(self):
-        respx.post(f"{BASE}/v1/memories/forget").mock(
+        respx.delete(f"{BASE}/v1/memories/mem_001").mock(
             return_value=httpx.Response(200, json={
                 "id": "mem_001",
                 "content": "User likes dark mode",
@@ -130,7 +130,7 @@ class TestProfileNamespaceIntegration:
     @respx.mock
     @pytest.mark.asyncio
     async def test_get_profile(self):
-        respx.post(f"{BASE}/v1/profile").mock(
+        respx.post(f"{BASE}/v1/profile/").mock(
             return_value=httpx.Response(200, json={
                 "profile": {
                     "identity": {"name": "Alice"},
@@ -235,8 +235,8 @@ class TestConversationsNamespaceIntegration:
         )
 
         async with RTMemoryClient(base_url=BASE) as client:
-            result = await client.conversations.end("conv_001")
-        assert result.id == "conv_001"
+            result = await client.conversations.end("conv_001", space_id="sp_001")
+        assert result["id"] == "conv_001"
 
 
 class TestSpacesNamespaceIntegration:
@@ -261,7 +261,6 @@ class TestSpacesNamespaceIntegration:
             result = await client.spaces.create(
                 name="New Space",
                 description="A new space",
-                org_id="org_001",
             )
         assert result.id == "sp_002"
         assert result.name == "New Space"
@@ -299,38 +298,33 @@ class TestGraphNamespaceIntegration:
     @pytest.mark.asyncio
     async def test_neighborhood(self):
         entity_id = str(uuid.uuid4())
-        respx.post(f"{BASE}/v1/memories/traverse").mock(
+        other_id = str(uuid.uuid4())
+        respx.get(f"{BASE}/v1/graph/neighborhood").mock(
             return_value=httpx.Response(200, json={
-                "center": {
-                    "id": entity_id,
-                    "name": "Alice",
-                    "entity_type": "person",
-                    "description": "",
-                    "confidence": 1.0,
-                },
-                "entities": [
-                    {"id": entity_id, "name": "Alice", "entity_type": "person", "description": "", "confidence": 1.0},
-                    {"id": str(uuid.uuid4()), "name": "Bob", "entity_type": "person", "description": "", "confidence": 1.0},
+                "center": entity_id,
+                "nodes": [
+                    {"id": entity_id, "label": "Alice", "entityType": "person", "description": "", "confidence": 1.0},
+                    {"id": other_id, "label": "Bob", "entityType": "person", "description": "", "confidence": 1.0},
                 ],
-                "relations": [
+                "edges": [
                     {
                         "id": str(uuid.uuid4()),
-                        "source_entity_id": entity_id,
-                        "target_entity_id": str(uuid.uuid4()),
-                        "relation_type": "knows",
-                        "value": "",
-                        "valid_from": "2026-01-01T00:00:00+00:00",
-                        "valid_to": None,
+                        "source": entity_id,
+                        "target": other_id,
+                        "label": "knows",
+                        "value": None,
                         "confidence": 1.0,
-                        "is_current": True,
+                        "validFrom": "2026-01-01T00:00:00+00:00",
+                        "validTo": None,
+                        "isCurrent": True,
                     }
                 ],
-                "depth": 3,
+                "maxHops": 3,
             })
         )
 
         async with RTMemoryClient(base_url=BASE) as client:
             result = await client.graph.neighborhood(entity_id=entity_id, max_hops=3)
-        assert result.center.name == "Alice"
-        assert len(result.entities) == 2
-        assert len(result.relations) == 1
+        assert result.center == entity_id
+        assert len(result.nodes) == 2
+        assert len(result.edges) == 1

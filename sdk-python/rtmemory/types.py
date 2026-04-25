@@ -267,26 +267,26 @@ class SpaceListResponse(BaseModel):
 
 class GraphEntity(BaseModel):
     id: str
-    name: str
-    entity_type: str | None = None
+    label: str  # entity name
+    entityType: str | None = None
     description: str | None = None
     confidence: float = 1.0
 
 
 class GraphRelation(BaseModel):
     id: str
-    source_entity_id: str
-    target_entity_id: str
-    relation_type: str
+    source: str  # source entity ID
+    target: str  # target entity ID
+    label: str  # relation type
     value: str | None = None
-    valid_from: datetime | None = None
-    valid_to: datetime | None = None
     confidence: float = 1.0
-    is_current: bool = True
+    validFrom: str | None = None
+    validTo: str | None = None
+    isCurrent: bool = True
 
 
 class GraphNeighborhood(BaseModel):
-    center: GraphEntity
-    entities: list[GraphEntity] = Field(default_factory=list)
-    relations: list[GraphRelation] = Field(default_factory=list)
-    depth: int = 1
+    center: str  # entity ID string
+    nodes: list[GraphEntity] = Field(default_factory=list)
+    edges: list[GraphRelation] = Field(default_factory=list)
+    maxHops: int = 3

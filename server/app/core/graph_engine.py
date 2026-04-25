@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -130,6 +131,9 @@ class GraphEngine:
             # Convert entity_type enum to string if present
             if "entity_type" in update_data and update_data["entity_type"] is not None:
                 update_data["entity_type"] = update_data["entity_type"].value
+            # Map schema field names to ORM attribute names where they differ
+            if "metadata" in update_data:
+                update_data["metadata_"] = update_data.pop("metadata")
             update_data["updated_at"] = datetime.now(timezone.utc)
             for key, value in update_data.items():
                 setattr(entity, key, value)
@@ -160,12 +164,13 @@ class GraphEngine:
         """
         now = datetime.now(timezone.utc)
 
-        # Check for existing current relation with same source + type
+        # Check for existing current relation with same source + type + space
         stmt = select(Relation).where(
             Relation.source_entity_id == data.source_entity_id,
             Relation.relation_type == data.relation_type,
             Relation.is_current == True,  # noqa: E712
             Relation.org_id == data.org_id,
+            Relation.space_id == data.space_id,
         )
         result = await self.session.execute(stmt)
         existing = result.scalar_one_or_none()
@@ -306,20 +311,19 @@ class GraphEngine:
 
         # Build the recursive CTE using raw SQL for PostgreSQL
         if direction == "both":
-            sql = self._build_both_direction_cte(params.max_hops, relation_types)
+            sql, bind_params = self._build_both_direction_cte(params.max_hops, relation_types, params.space_id)
         elif direction == "outgoing":
-            sql = self._build_single_direction_cte(
-                "source_entity_id", "target_entity_id", params.max_hops, relation_types
+            sql, bind_params = self._build_single_direction_cte(
+                "source_entity_id", "target_entity_id", params.max_hops, relation_types, params.space_id
             )
         else:  # incoming
-            sql = self._build_single_direction_cte(
-                "target_entity_id", "source_entity_id", params.max_hops, relation_types
+            sql, bind_params = self._build_single_direction_cte(
+                "target_entity_id", "source_entity_id", params.max_hops, relation_types, params.space_id
             )
 
-        # Execute the CTE query
-        result = await self.session.execute(
-            text(sql), {"start_entity_id": params.entity_id}
-        )
+        # Fill in the entity_id and space_id, then execute
+        bind_params["start_entity_id"] = params.entity_id
+        result = await self.session.execute(text(sql), bind_params)
         rows = result.fetchall()
 
         # Collect unique entity IDs and relation data
@@ -372,14 +376,32 @@ class GraphEngine:
             max_hops=params.max_hops,
         )
 
+    # Regex to validate relation type names — only alphanumeric + underscore
+    _VALID_RELATION_TYPE = re.compile(r"^[a-zA-Z0-9_]+$")
+
     def _build_single_direction_cte(
-        self, src_col: str, tgt_col: str, max_hops: int, relation_types: list[str] | None
-    ) -> str:
-        """Build recursive CTE SQL for a single traversal direction."""
+        self, src_col: str, tgt_col: str, max_hops: int, relation_types: list[str] | None, space_id: uuid.UUID | None = None
+    ) -> tuple[str, dict]:
+        """Build recursive CTE SQL for a single traversal direction.
+
+        Returns (sql, params) where params is a dict of bind parameters.
+        relation_types are passed as a PostgreSQL array parameter to prevent SQL injection.
+        space_id filters traversal to a single tenant when provided.
+        """
+        params: dict = {"start_entity_id": None}  # will be filled at execute time
         type_filter = ""
+        space_filter = ""
         if relation_types:
-            type_list = ",".join(f"'{rt}'" for rt in relation_types)
-            type_filter = f"AND r.relation_type IN ({type_list})"
+            # Validate relation types contain only safe characters
+            for rt in relation_types:
+                if not self._VALID_RELATION_TYPE.match(rt):
+                    raise ValueError(f"Invalid relation type: {rt!r}. Only alphanumeric characters and underscores are allowed.")
+            # Use ANY with a PostgreSQL array parameter — no string interpolation
+            type_filter = "AND r.relation_type = ANY(:relation_types)"
+            params["relation_types"] = relation_types
+        if space_id is not None:
+            space_filter = "AND r.space_id = :space_id"
+            params["space_id"] = space_id
 
         return f"""
         WITH RECURSIVE graph_traverse AS (
@@ -403,6 +425,7 @@ class GraphEngine:
             FROM relations r
             WHERE r.{src_col} = :start_entity_id
               AND r.is_current = true
+              {space_filter}
               {type_filter}
 
             UNION ALL
@@ -428,19 +451,33 @@ class GraphEngine:
             JOIN graph_traverse gt ON r.{src_col} = gt.{tgt_col}
             WHERE r.is_current = true
               AND gt.hop < {max_hops}
+              {space_filter}
               {type_filter}
         )
         SELECT * FROM graph_traverse ORDER BY hop
-        """
+        """, params
 
     def _build_both_direction_cte(
-        self, max_hops: int, relation_types: list[str] | None
-    ) -> str:
-        """Build recursive CTE SQL for both traversal directions."""
+        self, max_hops: int, relation_types: list[str] | None, space_id: uuid.UUID | None = None
+    ) -> tuple[str, dict]:
+        """Build recursive CTE SQL for both traversal directions.
+
+        Returns (sql, params) where params is a dict of bind parameters.
+        relation_types are passed as a PostgreSQL array parameter to prevent SQL injection.
+        space_id filters traversal to a single tenant when provided.
+        """
+        params: dict = {"start_entity_id": None}
         type_filter = ""
+        space_filter = ""
         if relation_types:
-            type_list = ",".join(f"'{rt}'" for rt in relation_types)
-            type_filter = f"AND r.relation_type IN ({type_list})"
+            for rt in relation_types:
+                if not self._VALID_RELATION_TYPE.match(rt):
+                    raise ValueError(f"Invalid relation type: {rt!r}. Only alphanumeric characters and underscores are allowed.")
+            type_filter = "AND r.relation_type = ANY(:relation_types)"
+            params["relation_types"] = relation_types
+        if space_id is not None:
+            space_filter = "AND r.space_id = :space_id"
+            params["space_id"] = space_id
 
         return f"""
         WITH RECURSIVE graph_traverse AS (
@@ -464,6 +501,7 @@ class GraphEngine:
             FROM relations r
             WHERE r.source_entity_id = :start_entity_id
               AND r.is_current = true
+              {space_filter}
               {type_filter}
 
             UNION ALL
@@ -488,6 +526,7 @@ class GraphEngine:
             FROM relations r
             WHERE r.target_entity_id = :start_entity_id
               AND r.is_current = true
+              {space_filter}
               {type_filter}
 
             UNION ALL
@@ -514,6 +553,7 @@ class GraphEngine:
             WHERE r.is_current = true
               AND gt.hop < {max_hops}
               AND gt.direction = 'outgoing'
+              {space_filter}
               {type_filter}
 
             UNION ALL
@@ -540,10 +580,11 @@ class GraphEngine:
             WHERE r.is_current = true
               AND gt.hop < {max_hops}
               AND gt.direction = 'incoming'
+              {space_filter}
               {type_filter}
         )
         SELECT DISTINCT ON (rel_id) * FROM graph_traverse ORDER BY rel_id, hop
-        """
+        """, params
 
     # ── Memory CRUD ────────────────────────────────────────────
 
@@ -570,7 +611,7 @@ class GraphEngine:
             version=1,
             parent_id=None,
             root_id=memory_id,  # First version: root is self
-            metadata=data.metadata,
+            metadata_=data.metadata,
             org_id=data.org_id,
             space_id=data.space_id,
             created_at=now,
@@ -725,7 +766,7 @@ class GraphEngine:
             version=new_version,
             parent_id=memory_id,
             root_id=old_memory.root_id,
-            metadata=new_metadata,
+            metadata_=new_metadata,
             org_id=old_memory.org_id,
             space_id=old_memory.space_id,
             created_at=now,

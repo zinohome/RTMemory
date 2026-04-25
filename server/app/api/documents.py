@@ -12,6 +12,7 @@ Document status: queued → extracting → chunking → embedding → done/faile
 from __future__ import annotations
 
 import uuid
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -29,9 +30,34 @@ from app.schemas.extraction import (
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
-# ── In-memory document store (to be replaced with DB in integration) ──────
+# ── In-memory document store with TTL eviction ──────────────────────
+_MAX_DOCUMENTS = 50000
+_DOCUMENT_TTL = 604800  # 7 days
 
 _documents: dict[uuid.UUID, dict] = {}
+
+
+def _evict_expired_documents() -> None:
+    """Remove documents older than TTL. Called on each create."""
+    now = time.time()
+    expired = [
+        did for did, doc in _documents.items()
+        if now - doc.get("_created_at_ts", 0) > _DOCUMENT_TTL
+    ]
+    for did in expired:
+        del _documents[did]
+
+
+def _enforce_max_size() -> None:
+    """Evict oldest documents when store exceeds max size."""
+    if len(_documents) > _MAX_DOCUMENTS:
+        sorted_ids = sorted(
+            _documents.keys(),
+            key=lambda did: _documents[did].get("_created_at_ts", 0),
+        )
+        to_remove = sorted_ids[: len(_documents) - _MAX_DOCUMENTS]
+        for did in to_remove:
+            del _documents[did]
 
 
 def _get_document_processor() -> DocumentProcessor:
@@ -76,20 +102,31 @@ async def _process_document_background(
         doc_type: Type of document.
         url: URL for webpage documents.
     """
-    result = await processor.process(
-        content=content,
-        doc_type=doc_type,
-        url=url,
-    )
+    try:
+        result = await processor.process(
+            content=content,
+            doc_type=doc_type,
+            url=url,
+        )
 
-    # Update stored document with results
-    if doc_id in _documents:
-        doc = _documents[doc_id]
-        doc["status"] = result.status
-        doc["summary"] = result.summary
-        if result.error:
-            doc["metadata"] = {**(doc.get("metadata") or {}), "error": result.error}
-        doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+        # Update stored document with results
+        if doc_id in _documents:
+            doc = _documents[doc_id]
+            doc["status"] = result.status
+            doc["summary"] = result.summary
+            if result.error:
+                doc["metadata"] = {**(doc.get("metadata") or {}), "error": result.error}
+            doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        # On failure, mark document as failed so it doesn't stay stuck
+        if doc_id in _documents:
+            doc = _documents[doc_id]
+            doc["status"] = DocumentStatus.failed.value
+            doc["metadata"] = {
+                **(doc.get("metadata") or {}),
+                "error": f"Processing failed: {e}",
+            }
+            doc["updated_at"] = datetime.now(timezone.utc).isoformat()
 
 
 @router.post("/", response_model=DocumentUploadResponse)
@@ -106,6 +143,10 @@ async def create_document(
     doc_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
 
+    # Evict expired and enforce size limit before adding
+    _evict_expired_documents()
+    _enforce_max_size()
+
     # Store document metadata
     _documents[doc_id] = {
         "id": str(doc_id),
@@ -118,6 +159,7 @@ async def create_document(
         "space_id": str(request.space_id),
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
+        "_created_at_ts": time.time(),  # Internal timestamp for TTL eviction
     }
 
     # Schedule background processing

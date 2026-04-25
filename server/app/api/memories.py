@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.graph_engine import GraphEngine
@@ -36,7 +36,6 @@ async def create_memory(
 ):
     """Create a new memory."""
     result = await engine.create_memory(data)
-    await engine.session.commit()
     return result
 
 
@@ -107,7 +106,6 @@ async def update_memory(
     """Update a memory (creates a new version in the chain)."""
     try:
         result = await engine.update_memory(memory_id, data)
-        await engine.session.commit()
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -116,13 +114,13 @@ async def update_memory(
 @router.delete("/{memory_id}", response_model=MemoryOut)
 async def forget_memory(
     memory_id: uuid.UUID,
-    data: MemoryForget = Body(default=MemoryForget()),
+    forget_reason: Optional[str] = Query(default=None, max_length=2000),
     engine: GraphEngine = Depends(_get_engine),
 ):
     """Soft-delete (forget) a memory."""
+    data = MemoryForget(forget_reason=forget_reason or "")
     try:
         result = await engine.forget_memory(memory_id, data)
-        await engine.session.commit()
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

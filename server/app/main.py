@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db.session import close_engine
+from app.middleware.auth import APIKeyMiddleware
 from app.worker import Worker
 
 
@@ -36,13 +37,20 @@ app = FastAPI(
 
 # CORS middleware
 _settings = get_settings()
+_cors_origins = _settings.server.cors_origins
+# Per CORS spec, allow_credentials=True is incompatible with allow_origins=["*"].
+# When using wildcard origins, credentials must be False.
+# When specific origins are listed, credentials can be True.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_settings.server.cors_origins,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# API Key authentication middleware (disabled by default, enable via RTMEM_AUTH_ENABLED=true)
+app.add_middleware(APIKeyMiddleware)
 
 # Import and register routers
 from app.api.spaces import router as spaces_router  # noqa: E402

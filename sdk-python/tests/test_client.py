@@ -150,21 +150,11 @@ class TestMemoriesNamespace:
     @respx.mock
     @pytest.mark.asyncio
     async def test_forget_by_id(self):
-        respx.post(f"{BASE}/v1/memories/forget").mock(
+        respx.delete(f"{BASE}/v1/memories/mem_001").mock(
             return_value=httpx.Response(200, json={"forgotten": True, "memory_id": "mem_001"})
         )
         async with RTMemoryClient(base_url=BASE) as client:
             resp = await client.memories.forget(memory_id="mem_001", reason="user requested")
-        assert resp["forgotten"] is True
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_forget_by_content_match(self):
-        respx.post(f"{BASE}/v1/memories/forget").mock(
-            return_value=httpx.Response(200, json={"forgotten": True, "count": 2})
-        )
-        async with RTMemoryClient(base_url=BASE) as client:
-            resp = await client.memories.forget(content_match="lives in Shanghai", reason="outdated")
         assert resp["forgotten"] is True
 
 
@@ -377,45 +367,47 @@ class TestConversationsNamespace:
 class TestGraphNamespace:
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_neighborhood(self):
-        respx.get(f"{BASE}/v1/graph/ent_001").mock(
+    async def test_neighborhood(self):
+        respx.get(f"{BASE}/v1/graph/neighborhood").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "center": {
-                        "id": "ent_001",
-                        "name": "Zhang Jun",
-                        "entity_type": "person",
-                        "description": "Software engineer",
-                        "confidence": 0.95,
-                    },
-                    "entities": [
+                    "center": "ent_001",
+                    "nodes": [
+                        {
+                            "id": "ent_001",
+                            "label": "Zhang Jun",
+                            "entityType": "person",
+                            "description": "Software engineer",
+                            "confidence": 0.95,
+                        },
                         {
                             "id": "ent_002",
-                            "name": "Beijing",
-                            "entity_type": "location",
+                            "label": "Beijing",
+                            "entityType": "location",
                             "description": "City",
                             "confidence": 0.9,
                         }
                     ],
-                    "relations": [
+                    "edges": [
                         {
                             "id": "rel_001",
-                            "source_entity_id": "ent_001",
-                            "target_entity_id": "ent_002",
-                            "relation_type": "lives_in",
+                            "source": "ent_001",
+                            "target": "ent_002",
+                            "label": "lives_in",
                             "confidence": 0.95,
-                            "is_current": True,
+                            "isCurrent": True,
                         }
                     ],
-                    "depth": 2,
+                    "maxHops": 2,
                 },
             )
         )
         async with RTMemoryClient(base_url=BASE) as client:
-            resp = await client.graph.get_neighborhood(entity_id="ent_001", depth=2)
-        assert resp.center.name == "Zhang Jun"
-        assert len(resp.relations) == 1
+            resp = await client.graph.neighborhood(entity_id="ent_001", max_hops=2)
+        assert resp.center == "ent_001"
+        assert len(resp.nodes) == 2
+        assert len(resp.edges) == 1
 
 
 # ── Spaces namespace ─────────────────────────────────────────────────────

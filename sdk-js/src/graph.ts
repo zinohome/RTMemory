@@ -1,5 +1,5 @@
 /**
- * GraphClient — thin wrapper around graph traversal API endpoints.
+ * GraphClient — thin wrapper around graph visualization API endpoints.
  */
 
 import type { GraphNeighborhood } from "./types";
@@ -19,16 +19,20 @@ export class GraphClient {
     entityId: string;
     spaceId?: string;
     maxHops?: number;
+    relationTypes?: string[];
+    direction?: string;
   }): Promise<GraphNeighborhood> {
-    const body: Record<string, unknown> = {
-      entity_id: params.entityId,
-      max_hops: params.maxHops ?? 3,
-    };
-    if (params.spaceId) body["space_id"] = params.spaceId;
-    const res = await fetch(`${this.baseUrl}/v1/memories/traverse`, {
-      method: "POST",
+    const url = new URL(`${this.baseUrl}/v1/graph/neighborhood`);
+    url.searchParams.set("entity_id", params.entityId);
+    url.searchParams.set("max_hops", String(params.maxHops ?? 3));
+    if (params.spaceId) url.searchParams.set("space_id", params.spaceId);
+    if (params.direction) url.searchParams.set("direction", params.direction);
+    if (params.relationTypes?.length) {
+      url.searchParams.set("relation_types", params.relationTypes.join(","));
+    }
+    const res = await fetch(url.toString(), {
+      method: "GET",
       headers: this.headers,
-      body: JSON.stringify(body),
     });
     if (!res.ok) throw new RTMemoryError(res.status, await res.text());
     return res.json() as Promise<GraphNeighborhood>;

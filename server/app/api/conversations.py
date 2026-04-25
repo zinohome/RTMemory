@@ -7,6 +7,7 @@ POST /v1/conversations/end  — End conversation, trigger Layer 3 deep scan
 from __future__ import annotations
 
 import uuid
+import time
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -25,9 +26,36 @@ from app.schemas.extraction import (
 
 router = APIRouter(prefix="/v1/conversations", tags=["conversations"])
 
-# ── In-memory conversation store (to be replaced with DB in integration) ──
+# ── In-memory conversation store with TTL eviction ──────────────────────
+# Max conversations and TTL in seconds (configurable via env in future)
+_MAX_CONVERSATIONS = 10000
+_CONVERSATION_TTL = 86400  # 24 hours
 
-_conversations: dict[uuid.UUID, list[dict[str, str]]] = {}
+# Store: {id: {"messages": [...], "created_at": float}}
+_conversations: dict[uuid.UUID, dict] = {}
+
+
+def _evict_expired_conversations() -> None:
+    """Remove conversations older than TTL. Called on each submit."""
+    now = time.time()
+    expired = [
+        cid for cid, entry in _conversations.items()
+        if now - entry["created_at"] > _CONVERSATION_TTL
+    ]
+    for cid in expired:
+        del _conversations[cid]
+
+
+def _enforce_max_size() -> None:
+    """Evict oldest conversations when store exceeds max size."""
+    if len(_conversations) > _MAX_CONVERSATIONS:
+        sorted_ids = sorted(
+            _conversations.keys(),
+            key=lambda cid: _conversations[cid]["created_at"],
+        )
+        to_remove = sorted_ids[: len(_conversations) - _MAX_CONVERSATIONS]
+        for cid in to_remove:
+            del _conversations[cid]
 
 
 def _get_fact_detector() -> FactDetector:
@@ -83,12 +111,19 @@ async def submit_conversation(
     """
     conversation_id = uuid.uuid4()
 
+    # Evict expired and enforce size limit before adding
+    _evict_expired_conversations()
+    _enforce_max_size()
+
     # Store conversation messages for later deep scan
     message_dicts = [
         {"role": m.role, "content": m.content}
         for m in request.messages
     ]
-    _conversations[conversation_id] = message_dicts
+    _conversations[conversation_id] = {
+        "messages": message_dicts,
+        "created_at": time.time(),
+    }
 
     # Layer 1: Filter messages that contain facts
     context_messages = [m.content for m in request.messages]
@@ -132,7 +167,8 @@ async def end_conversation(
     The deep scan processes the full conversation to capture implicit
     preferences, cross-message correlations, and confidence adjustments.
     """
-    messages = _conversations.pop(request.conversation_id, [])
+    entry = _conversations.pop(request.conversation_id, None)
+    messages = entry["messages"] if entry else []
 
     if not messages:
         return ConversationEndResponse(

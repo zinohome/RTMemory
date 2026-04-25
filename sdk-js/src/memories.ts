@@ -39,12 +39,14 @@ export class MemoryAddClient {
     return res.json() as Promise<MemoryAddResponse>;
   }
 
-  /** Forget a memory by ID or content match (soft delete). */
-  async forget(req: MemoryForgetRequest): Promise<Record<string, unknown>> {
-    const res = await fetch(`${this.baseUrl}/v1/memories/forget`, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify(req),
+  /** Forget a memory by ID (soft delete). */
+  async forget(memoryId: string, reason?: string): Promise<Record<string, unknown>> {
+    const body: Record<string, unknown> = {};
+    if (reason) body["forget_reason"] = reason;
+    const res = await fetch(`${this.baseUrl}/v1/memories/${encodeURIComponent(memoryId)}`, {
+      method: "DELETE",
+      headers: { ...this.headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new RTMemoryError(res.status, await res.text());
     return res.json() as Promise<Record<string, unknown>>;

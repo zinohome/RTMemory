@@ -46,13 +46,22 @@ class Worker:
 
     Submits tasks to a background asyncio loop. Integrates with
     FastAPI lifecycle via start()/stop() methods.
+
+    Completed tasks are automatically evicted after _TASK_RETENTION_SECONDS
+    to prevent unbounded memory growth. A maximum of _MAX_COMPLETED_TASKS
+    completed/failed tasks are retained.
     """
+
+    # Retention config for completed tasks
+    _MAX_COMPLETED_TASKS = 1000
+    _TASK_RETENTION_SECONDS = 3600  # 1 hour
 
     def __init__(self, max_concurrent: int = 4) -> None:
         self._tasks: dict[str, Task] = {}
         self._handlers: dict[str, TaskHandler] = {}
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._running = False
+        self._background_tasks: set[asyncio.Task] = set()  # prevent GC
 
     def register(self, task_type: str, handler: TaskHandler) -> None:
         """Register a handler for a task type."""
@@ -85,7 +94,11 @@ class Worker:
         task = Task(id=task_id, task_type=task_type, payload=payload)
         self._tasks[task_id] = task
 
-        asyncio.create_task(self._run_task(task))
+        # Create background task and store reference to prevent GC
+        bg_task = asyncio.create_task(self._run_task(task))
+        self._background_tasks.add(bg_task)
+        bg_task.add_done_callback(self._background_tasks.discard)
+
         return task_id
 
     async def _run_task(self, task: Task) -> None:
@@ -103,6 +116,31 @@ class Worker:
                 logger.error("Task %s (%s) failed: %s", task.id, task.task_type, e)
             finally:
                 task.completed_at = datetime.now(timezone.utc)
+                self._evict_old_tasks()
+
+    def _evict_old_tasks(self) -> None:
+        """Remove completed/failed tasks beyond retention limits."""
+        now = datetime.now(timezone.utc)
+        # Remove tasks older than retention period
+        expired_ids = [
+            tid for tid, t in self._tasks.items()
+            if t.status in (TaskStatus.completed, TaskStatus.failed)
+            and t.completed_at is not None
+            and (now - t.completed_at).total_seconds() > self._TASK_RETENTION_SECONDS
+        ]
+        for tid in expired_ids:
+            del self._tasks[tid]
+
+        # Enforce max completed tasks
+        completed = [
+            (tid, t) for tid, t in self._tasks.items()
+            if t.status in (TaskStatus.completed, TaskStatus.failed)
+        ]
+        if len(completed) > self._MAX_COMPLETED_TASKS:
+            completed.sort(key=lambda x: x[1].completed_at or datetime.min.replace(tzinfo=timezone.utc))
+            to_remove = completed[: len(completed) - self._MAX_COMPLETED_TASKS]
+            for tid, _ in to_remove:
+                del self._tasks[tid]
 
     def get_task(self, task_id: str) -> Task | None:
         """Get task status by ID."""

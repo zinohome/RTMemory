@@ -31,7 +31,6 @@ async def create_entity(
 ):
     """Create a new entity."""
     result = await engine.create_entity(data)
-    await engine.session.commit()
     return result
 
 
@@ -76,7 +75,6 @@ async def update_entity(
     """Update an entity."""
     try:
         result = await engine.update_entity(entity_id, data)
-        await engine.session.commit()
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -90,6 +88,5 @@ async def delete_entity(
     """Delete an entity."""
     try:
         await engine.delete_entity(entity_id)
-        await engine.session.commit()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

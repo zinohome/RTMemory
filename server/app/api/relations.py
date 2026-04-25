@@ -31,7 +31,6 @@ async def create_relation(
 ):
     """Create a new relation. Handles contradiction automatically."""
     result = await engine.create_relation(data)
-    await engine.session.commit()
     return result
 
 
@@ -82,7 +81,6 @@ async def update_relation(
     """Update a relation."""
     try:
         result = await engine.update_relation(relation_id, data)
-        await engine.session.commit()
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -96,6 +94,5 @@ async def delete_relation(
     """Delete a relation."""
     try:
         await engine.delete_relation(relation_id)
-        await engine.session.commit()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

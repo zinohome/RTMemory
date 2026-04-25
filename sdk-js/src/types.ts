@@ -254,30 +254,32 @@ export type SpaceListResponse = z.infer<typeof SpaceListResponseSchema>;
 
 // ── Graph ───────────────────────────────────────────────────────────────
 
-export const GraphEntitySchema = z.object({
+export const GraphNodeSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  label: z.string(),
   entityType: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   confidence: z.number().default(1.0),
 });
+export type GraphNode = z.infer<typeof GraphNodeSchema>;
 
-export const GraphRelationSchema = z.object({
+export const GraphEdgeSchema = z.object({
   id: z.string(),
-  sourceEntityId: z.string(),
-  targetEntityId: z.string(),
-  relationType: z.string(),
+  source: z.string(),
+  target: z.string(),
+  label: z.string(),
   value: z.string().nullable().optional(),
+  confidence: z.number().default(1.0),
   validFrom: z.string().nullable().optional(),
   validTo: z.string().nullable().optional(),
-  confidence: z.number().default(1.0),
   isCurrent: z.boolean().default(true),
 });
+export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
 
 export const GraphNeighborhoodSchema = z.object({
-  center: GraphEntitySchema,
-  entities: z.array(GraphEntitySchema).default([]),
-  relations: z.array(GraphRelationSchema).default([]),
-  depth: z.number().default(1),
+  center: z.string(),
+  nodes: z.array(GraphNodeSchema).default([]),
+  edges: z.array(GraphEdgeSchema).default([]),
+  maxHops: z.number().default(3),
 });
 export type GraphNeighborhood = z.infer<typeof GraphNeighborhoodSchema>;

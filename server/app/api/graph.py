@@ -104,6 +104,15 @@ async def get_graph_neighborhood(
     parsed_relation_types: Optional[list[str]] = None
     if relation_types:
         parsed_relation_types = [rt.strip() for rt in relation_types.split(",") if rt.strip()]
+        # Validate relation types — only alphanumeric + underscore
+        import re
+        _valid_rt = re.compile(r"^[a-zA-Z0-9_]+$")
+        for rt in parsed_relation_types:
+            if not _valid_rt.match(rt):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid relation type: {rt!r}. Only alphanumeric characters and underscores are allowed.",
+                )
 
     params = GraphTraversalParams(
         entity_id=entity_id,

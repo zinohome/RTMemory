@@ -44,8 +44,8 @@ def _get_llm_adapter():
 async def search(
     request: SearchRequest,
     db: AsyncSession = Depends(db_session),
-    embedding_service=_get_embedding_service,
-    llm_adapter=_get_llm_adapter,
+    embedding_service=Depends(_get_embedding_service),
+    llm_adapter=Depends(_get_llm_adapter),
 ) -> SearchResponse:
     """Execute a hybrid search across memories, entities, and documents.
 

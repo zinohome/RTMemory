@@ -177,6 +177,7 @@ class MemoryListOut(BaseModel):
 
 class GraphTraversalParams(BaseModel):
     entity_id: uuid.UUID
+    space_id: Optional[uuid.UUID] = None
     max_hops: int = Field(default=3, ge=1, le=10)
     relation_types: Optional[list[str]] = None
     direction: str = Field(default="both", pattern="^(outgoing|incoming|both)$")
